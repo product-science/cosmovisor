@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/otiai10/copy"
 	"github.com/stretchr/testify/require"
@@ -236,6 +237,85 @@ func (s *upgradeTestSuite) TestUpgradeBinary() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
+			}
+		})
+	}
+}
+
+func (s *upgradeTestSuite) TestUpgradeBinaryRetry() {
+	logger := log.NewLogger(os.Stdout).With(log.ModuleKey, "cosmovisor")
+
+	testCases := []struct {
+		name           string
+		url            string
+		retries        int
+		retriesDelay   time.Duration
+		expectSuccess  bool
+		expectedErrMsg string
+	}{
+		{
+			name:           "no retries, invalid url",
+			url:            workDir + "/testdata/repo/bad_dir/autod?checksum=sha256:73e2bd6cbb99261733caf137015d5cc58e3f96248d8b01da68be8564989dd906",
+			retries:        0,
+			retriesDelay:   time.Second,
+			expectSuccess:  false,
+			expectedErrMsg: "cannot download binary after 1 attempts",
+		},
+		{
+			name:           "with retries, invalid url",
+			url:            workDir + "/testdata/repo/bad_dir/autod?checksum=sha256:73e2bd6cbb99261733caf137015d5cc58e3f96248d8b01da68be8564989dd906",
+			retries:        3,
+			retriesDelay:   10 * time.Millisecond, // Use a small delay for faster tests
+			expectSuccess:  false,
+			expectedErrMsg: "cannot download binary after 4 attempts",
+		},
+		{
+			name:          "valid url with retries",
+			url:           workDir + "/testdata/repo/raw_binary/autod?checksum=sha256:e6bc7851600a2a9917f7bf88eb7bdee1ec162c671101485690b4deb089077b0d",
+			retries:       2,
+			retriesDelay:  10 * time.Millisecond,
+			expectSuccess: true,
+		},
+		{
+			name:          "indefinite retries with valid url",
+			url:           workDir + "/testdata/repo/raw_binary/autod?checksum=sha256:e6bc7851600a2a9917f7bf88eb7bdee1ec162c671101485690b4deb089077b0d",
+			retries:       -1,
+			retriesDelay:  10 * time.Millisecond,
+			expectSuccess: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.name, func() {
+			var err error
+			cfg := prepareConfig(
+				s.T(),
+				fmt.Sprintf("%s/%s", workDir, "testdata/download"),
+				cosmovisor.Config{
+					Name:                  "autod",
+					AllowDownloadBinaries: true,
+					DownloadRetries:       tc.retries,
+					DownloadRetriesDelay:  tc.retriesDelay,
+				},
+			)
+
+			url := tc.url
+			if strings.HasPrefix(url, "./") {
+				url, err = filepath.Abs(url)
+				s.Require().NoError(err)
+			}
+
+			plan := upgradetypes.Plan{
+				Name: "amazonas",
+				Info: fmt.Sprintf(`{"binaries":{"%s": "%s"}}`, cosmovisor.OSArch(), url),
+			}
+
+			err = cosmovisor.UpgradeBinary(logger, cfg, plan)
+			if tc.expectSuccess {
+				s.Require().NoError(err)
+			} else {
+				s.Require().Error(err)
+				s.Require().Contains(err.Error(), tc.expectedErrMsg)
 			}
 		})
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 
 	"cosmossdk.io/log"
 
@@ -52,9 +53,27 @@ func UpgradeBinary(logger log.Logger, cfg *Config, p upgradetypes.Plan) error {
 
 	// If not there, then we try to download it... maybe
 	logger.Info("no upgrade binary found, beginning to download it")
-	if err := plan.DownloadUpgrade(cfg.UpgradeDir(p.Name), url, cfg.Name); err != nil {
-		return fmt.Errorf("cannot download binary. %w", err)
+
+	var downloadErr error
+	retries := 0
+
+	for {
+		downloadErr = plan.DownloadUpgrade(cfg.UpgradeDir(p.Name), url, cfg.Name)
+		if downloadErr == nil {
+			break
+		}
+
+		// If we've reached the maximum number of retries, return the error
+		// For cfg.DownloadRetries == -1, we retry indefinitely
+		if cfg.DownloadRetries != -1 && retries >= cfg.DownloadRetries {
+			return fmt.Errorf("cannot download binary after %d attempts. %w", retries+1, downloadErr)
+		}
+
+		retries++
+		logger.Info(fmt.Sprintf("download attempt %d failed, retrying in %s", retries, cfg.DownloadRetriesDelay), "err", downloadErr)
+		time.Sleep(cfg.DownloadRetriesDelay)
 	}
+
 	logger.Info("downloading binary complete")
 
 	// and then set the binary again

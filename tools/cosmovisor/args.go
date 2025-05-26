@@ -34,6 +34,8 @@ const (
 	EnvDataBackupPath           = "DAEMON_DATA_BACKUP_DIR"
 	EnvInterval                 = "DAEMON_POLL_INTERVAL"
 	EnvPreupgradeMaxRetries     = "DAEMON_PREUPGRADE_MAX_RETRIES"
+	EnvDownloadRetries          = "DAEMON_DOWNLOAD_RETRIES"
+	EnvDownloadRetriesDelay     = "DAEMON_DOWNLOAD_RETRIES_DELAY"
 	EnvGRPCAddress              = "DAEMON_GRPC_ADDRESS"
 	EnvDisableLogs              = "COSMOVISOR_DISABLE_LOGS"
 	EnvColorLogs                = "COSMOVISOR_COLOR_LOGS"
@@ -65,6 +67,8 @@ type Config struct {
 	UnsafeSkipBackup         bool          `toml:"unsafe_skip_backup" mapstructure:"unsafe_skip_backup" default:"false"`
 	DataBackupPath           string        `toml:"daemon_data_backup_dir" mapstructure:"daemon_data_backup_dir"`
 	PreUpgradeMaxRetries     int           `toml:"daemon_preupgrade_max_retries" mapstructure:"daemon_preupgrade_max_retries" default:"0"`
+	DownloadRetries          int           `toml:"daemon_download_retries" mapstructure:"daemon_download_retries" default:"0"`
+	DownloadRetriesDelay     time.Duration `toml:"daemon_download_retries_delay" mapstructure:"daemon_download_retries_delay" default:"10s"`
 	GRPCAddress              string        `toml:"daemon_grpc_address" mapstructure:"daemon_grpc_address"`
 	DisableLogs              bool          `toml:"cosmovisor_disable_logs" mapstructure:"cosmovisor_disable_logs" default:"false"`
 	ColorLogs                bool          `toml:"cosmovisor_color_logs" mapstructure:"cosmovisor_color_logs" default:"true"`
@@ -290,6 +294,23 @@ func GetConfigFromEnv(skipValidate bool) (*Config, error) {
 	envPreUpgradeMaxRetriesVal := os.Getenv(EnvPreupgradeMaxRetries)
 	if cfg.PreUpgradeMaxRetries, err = strconv.Atoi(envPreUpgradeMaxRetriesVal); err != nil && envPreUpgradeMaxRetriesVal != "" {
 		errs = append(errs, fmt.Errorf("%s could not be parsed to int: %w", EnvPreupgradeMaxRetries, err))
+	}
+
+	envDownloadRetriesVal := os.Getenv(EnvDownloadRetries)
+	if cfg.DownloadRetries, err = strconv.Atoi(envDownloadRetriesVal); err != nil && envDownloadRetriesVal != "" {
+		errs = append(errs, fmt.Errorf("%s could not be parsed to int: %w", EnvDownloadRetries, err))
+	}
+
+	downloadRetriesDelay := os.Getenv(EnvDownloadRetriesDelay)
+	if downloadRetriesDelay != "" {
+		val, err := parseEnvDuration(downloadRetriesDelay)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid: %s: %w", EnvDownloadRetriesDelay, err))
+		} else {
+			cfg.DownloadRetriesDelay = val
+		}
+	} else {
+		cfg.DownloadRetriesDelay = 10 * time.Second
 	}
 
 	cfg.GRPCAddress = os.Getenv(EnvGRPCAddress)
@@ -557,6 +578,8 @@ func (cfg Config) DetailString() string {
 		{EnvSkipBackup, fmt.Sprintf("%t", cfg.UnsafeSkipBackup)},
 		{EnvDataBackupPath, cfg.DataBackupPath},
 		{EnvPreupgradeMaxRetries, fmt.Sprintf("%d", cfg.PreUpgradeMaxRetries)},
+		{EnvDownloadRetries, fmt.Sprintf("%d", cfg.DownloadRetries)},
+		{EnvDownloadRetriesDelay, cfg.DownloadRetriesDelay.String()},
 		{EnvDisableLogs, fmt.Sprintf("%t", cfg.DisableLogs)},
 		{EnvColorLogs, fmt.Sprintf("%t", cfg.ColorLogs)},
 		{EnvTimeFormatLogs, cfg.TimeFormatLogs},
